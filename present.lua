@@ -1,9 +1,24 @@
 local M = {}
 
-function CreateFloatingWindow(config)
+function CreateFloatingWindow(config, enter)
+  if enter == nil then
+    enter = false
+  end
   local buf = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buf, true, config)
+  local win = vim.api.nvim_open_win(buf, enter, config)
   return { buf = buf, win = win }
+end
+
+local state = {
+  parsed = {},
+  current_slide = 1,
+  floats = {},
+}
+
+local present_keymap = function(mode, key, callback)
+  vim.keymap.set(mode, key, callback, {
+    buffer = state.floats.body.buf,
+  })
 end
 
 M.setup = function()
@@ -45,16 +60,21 @@ local parse_slides = function(lines)
   return slides
 end
 
-M.start_presentation = function(opts)
-  opts = opts or {}
-  opts.bufnr = opts.bufnr or 0
-  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
-  local parsed = parse_slides(lines)
+local foreach_float = function(cb)
+  for name, float in pairs(state.floats) do
+    cb(name, float)
+  end
+end
 
+---@type vim.api.keyset.win_config[]
+local create_windown_configuration = function()
   local width = vim.o.columns
   local height = vim.o.lines
-  ---@type vim.api.keyset.win_config[]
-  local windows = {
+  local header_height = 3
+  local footer_height = 1
+  local body_height = height - header_height - footer_height - 2
+
+  return {
     background = {
       relative = "editor",
       width = width,
@@ -77,49 +97,77 @@ M.start_presentation = function(opts)
     },
     body = {
       relative = 'editor',
-      height = height - 5,
+      height = body_height,
       width = width,
       border = { "#", "#", "#", "#", "#", "#", "#", "#" },
       style = 'minimal',
-      row = 4,
+      row = 3,
       col = 0,
+      zindex = 2,
     },
-    -- footer = {}, -- TODO:
+    footer = {
+      relative = 'editor',
+      height = 1,
+      width = width,
+      style = 'minimal',
+      row = height - 1,
+      col = 0,
+      zindex = 2,
+    },
   }
+end
 
-  local background_float = CreateFloatingWindow(windows.background)
-  local header_float = CreateFloatingWindow(windows.header)
-  local body_float = CreateFloatingWindow(windows.body)
+M.start_presentation = function(opts)
+  opts = opts or {}
+  opts.bufnr = opts.bufnr or 0
+  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
+  state.parsed = parse_slides(lines)
+  state.current_slide = 1
+  state.filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(opts.bufnr), ":t")
 
-  vim.bo[header_float.buf].filetype = "markdown"
-  vim.bo[body_float.buf].filetype = "markdown"
+  local window = create_windown_configuration()
+
+  -- foreach_float(function(name, _)
+  --   state.floats[name] = CreateFloatingWindow(window[name])
+  -- end)
+  state.floats.background = CreateFloatingWindow(window.background, false)
+  state.floats.header = CreateFloatingWindow(window.header, false)
+  state.floats.footer = CreateFloatingWindow(window.footer, false)
+  state.floats.body = CreateFloatingWindow(window.body, true)
+
+  foreach_float(function(_, float)
+    vim.bo[float.buf].filetype = "markdown"
+  end)
 
   local set_slide_content = function(idx)
-    local slide = parsed.slides[idx]
-    vim.api.nvim_buf_set_lines(header_float.buf, 0, -1, false, { slide.title })
-    vim.api.nvim_buf_set_lines(body_float.buf, 0, -1, false, slide.body)
+    local width = vim.o.columns
+    local slide = state.parsed.slides[idx]
+    local padding = string.rep(" ", (width - #slide.title) / 2)
+    vim.api.nvim_buf_set_lines(state.floats.header.buf, 0, -1, false,
+      { padding .. slide.title })
+    vim.api.nvim_buf_set_lines(state.floats.body.buf, 0, -1, false, slide.body)
+    local footer = string.format(
+      " %d / %d | %s",
+      state.current_slide,
+      #state.parsed.slides,
+      state.filename
+    )
+    vim.api.nvim_buf_set_lines(state.floats.footer.buf, 0, -1, false, { footer })
   end
 
-  local current_slide = 1
-  vim.keymap.set("n", "n", function()
-    current_slide = math.min(current_slide + 1, #parsed.slides)
-    set_slide_content(current_slide)
-  end, {
-    buffer = body_float.buf
-  }
-  )
+  present_keymap("n", "n", function()
+    state.current_slide = math.min(state.current_slide + 1, #state.parsed.slides)
+    set_slide_content(state.current_slide)
+  end)
 
-  vim.keymap.set("n", "p", function()
-    current_slide = math.max(current_slide - 1, 1)
-    set_slide_content(current_slide)
-  end, {
-    buffer = body_float.buf
-  })
+  present_keymap("n", "N", function()
+    state.current_slide = math.max(state.current_slide - 1, 1)
+    set_slide_content(state.current_slide)
+  end)
 
-  vim.keymap.set("n", "q", function()
-      vim.api.nvim_win_close(body_float.win, true)
-    end,
-    { buffer = body_float.buf })
+  present_keymap("n", "q", function()
+    vim.api.nvim_win_close(state.floats.body.win, true)
+  end)
 
   local restore = {
     cmdheight = {
@@ -133,20 +181,36 @@ M.start_presentation = function(opts)
   end
 
   vim.api.nvim_create_autocmd("BufLeave", {
-    buffer = body_float.buf,
+    buffer = state.floats.body.buf,
     callback = function()
-      pcall(vim.api.nvim_win_close, background_float.win, true)
-      pcall(vim.api.nvim_win_close, header_float.win, true)
-      -- reset values when leaving presentation
       for option, config in pairs(restore) do
         vim.api.nvim_set_option_value(option, config.original, {})
       end
+
+      foreach_float(function(_, float)
+        pcall(vim.api.nvim_win_close, float.win, true)
+      end)
     end
   })
 
-  set_slide_content(1)
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = vim.api.nvim_create_augroup("present-resize", {}),
+    callback = function()
+      if not vim.api.nvim_win_is_valid(state.floats.body.win)
+          or state.floats.body.win == nil then
+        return
+      end
+      local updated = create_windown_configuration()
+      foreach_float(function(name, float)
+        vim.api.nvim_win_set_config(float.win, updated[name])
+      end)
+      set_slide_content(state.current_slide)
+    end
+  })
+
+  set_slide_content(state.current_slide)
 end
 
-M.start_presentation({ bufnr = 4 })
+-- M.start_presentation({ bufnr = 4 })
 
 return M
