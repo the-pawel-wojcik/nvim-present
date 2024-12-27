@@ -11,3 +11,6 @@ require("present").start_presentation {}
 ```
 
 Use `n`, `p`, and `q` for navigation.
+
+# Credits
+[teej_dv](https://github.com/tjdevries/present.nvim)
