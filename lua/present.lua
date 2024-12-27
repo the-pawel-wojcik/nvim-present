@@ -211,6 +211,8 @@ M.start_presentation = function(opts)
   set_slide_content(state.current_slide)
 end
 
--- M.start_presentation({ bufnr = 4 })
+-- M.start_presentation({ bufnr = 5 })
+
+M._parse_slides = parse_slides
 
 return M
