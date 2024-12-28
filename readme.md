@@ -11,13 +11,16 @@ Works with lua
 ```lua
 print("Lua code inside a codeblock")
 ```
-Does not work with python
+mapped to `<space>e`.
+
+## Now it also works with python 
+
 ```python
 import sys
 print("Running python version")
 print(sys.version)
 ```
-mapped to `<space>e`.
+Extends to other interpreted languages by `opts.executors`
 
 # Usage 
 
