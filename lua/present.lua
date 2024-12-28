@@ -1,6 +1,6 @@
 local M = {}
 
-function CreateFloatingWindow(config, enter)
+M._create_float_win = function(config, enter)
   if enter == nil then
     enter = false
   end
@@ -72,7 +72,7 @@ local create_windown_configuration = function()
   local height = vim.o.lines
   local header_height = 3
   local footer_height = 1
-  local body_height = height - header_height - footer_height - 2
+  local body_height = height - header_height - footer_height - 3
 
   return {
     background = {
@@ -98,11 +98,11 @@ local create_windown_configuration = function()
     body = {
       relative = 'editor',
       height = body_height,
-      width = width,
-      border = { "#", "#", "#", "#", "#", "#", "#", "#" },
+      width = width - 8,
+      border = 'none',
       style = 'minimal',
-      row = 3,
-      col = 0,
+      row = 6,
+      col = 4,
       zindex = 2,
     },
     footer = {
@@ -123,17 +123,17 @@ M.start_presentation = function(opts)
   local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
   state.parsed = parse_slides(lines)
   state.current_slide = 1
-  state.filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(opts.bufnr), ":t")
+  state.filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(opts.bufnr), ":t:r")
 
   local window = create_windown_configuration()
 
   -- foreach_float(function(name, _)
   --   state.floats[name] = CreateFloatingWindow(window[name])
   -- end)
-  state.floats.background = CreateFloatingWindow(window.background, false)
-  state.floats.header = CreateFloatingWindow(window.header, false)
-  state.floats.footer = CreateFloatingWindow(window.footer, false)
-  state.floats.body = CreateFloatingWindow(window.body, true)
+  state.floats.background = M._create_float_win(window.background, false)
+  state.floats.header = M._create_float_win(window.header, false)
+  state.floats.footer = M._create_float_win(window.footer, false)
+  state.floats.body = M._create_float_win(window.body, true)
 
   foreach_float(function(_, float)
     vim.bo[float.buf].filetype = "markdown"
